@@ -56,7 +56,7 @@ class Isucon5f::WebApp < Sinatra::Base
     def authenticate(email, password)
         # 認証
       query = <<SQL
-SELECT id, email, grade FROM users WHERE email=$1 AND passhash=digest(salt || $2, 'sha512')
+SELECT id, email, grade FROM users WHERE email=$1 AND passhash=digest(salt || $2, 'sha512') limit 1
 SQL
       user = nil
       db.exec_params(query, [email, password]) do |result|
@@ -89,6 +89,12 @@ SQL
         salt << SALT_CHARS[rand(SALT_CHARS.size)]
       end
       salt
+    end
+
+    def services
+        return @services if @services
+        @services = db.exec_params("SELECT meth, token_type, token_key, uri, service FROM endpoints").values
+        return @services
     end
   end
 
@@ -217,7 +223,7 @@ SQL
     data = []
 
     arg.each_pair do |service, conf|
-      row = db.exec_params("SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1", [service]).values.first
+      row = services.select {|item| item[4] == service}.first
       method, token_type, token_key, uri_template = row
       headers = {}
       params = (conf['params'] && conf['params'].dup) || {}
