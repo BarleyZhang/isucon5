@@ -6,6 +6,7 @@ require 'erubis'
 require 'json'
 require 'httpclient'
 require 'openssl'
+require 'redis'
 
 # bundle config build.pg --with-pg-config=<path to pg_config>
 # bundle install
@@ -96,6 +97,14 @@ SQL
         @services = db.exec_params("SELECT meth, token_type, token_key, uri, service FROM endpoints").values
         return @services
     end
+
+    def redis
+      return Thread.current[:isucon5_redis] if Thread.current[:isucon5_redis]
+      redis = Redis.new(:host => "127.0.0.1", :port => 6379, driver: :hiredis) 
+      Thread.current[:isucon5_redis] = redis
+      redis
+    end
+
   end
 
   get '/signup' do
@@ -223,6 +232,26 @@ SQL
     data = []
 
     arg.each_pair do |service, conf|
+
+        ## cache
+        cached_data = nil
+        case service
+        when "ken" then
+            cached_data = redis.get("ken:" + conf['keys'])
+        when "ken2" then
+            cached_data = redis.get("ken:" + params['zipcode'])
+        when "surname" then
+            cached_data = redis.get("surname:" + params['q'])
+        when "givenname" then
+            cached_data = redis.get("givenname:" + params['q'])
+        end
+
+        if cached_data then
+            data << cached_data
+            next
+        end
+
+
       row = services.select {|item| item[4] == service}.first
       method, token_type, token_key, uri_template = row
       headers = {}
@@ -232,7 +261,21 @@ SQL
       when 'param' then params[token_key] = conf['token']
       end
       uri = sprintf(uri_template, *conf['keys'])
-      data << {"service" => service, "data" => fetch_api(method, uri, headers, params)}
+      d =  {"service" => service, "data" => fetch_api(method, uri, headers, params)}
+
+        case service
+        when "ken" then
+            redis.set("ken:" + conf['keys'], d)
+        when "ken2" then
+            redis.set("ken:" + params['zipcode'], d)
+        when "surname" then
+            redis.set("surname:" + params['q'], d)
+        when "givenname" then
+            redis.set("givenname:" + params['q'], d)
+        end
+
+      data << d
+
     end
 
     json data
@@ -240,6 +283,7 @@ SQL
 
   get '/initialize' do
     file = File.expand_path("../../sql/initialize.sql", __FILE__)
+    redis.flushall()
     system("psql", "-f", file, "isucon5f")
   end
 end
