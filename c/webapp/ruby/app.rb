@@ -54,6 +54,7 @@ class Isucon5f::WebApp < Sinatra::Base
     end
 
     def authenticate(email, password)
+        # 認証
       query = <<SQL
 SELECT id, email, grade FROM users WHERE email=$1 AND passhash=digest(salt || $2, 'sha512')
 SQL
@@ -68,6 +69,7 @@ SQL
     end
 
     def current_user
+        # 現在のユーザー
       return @user if @user
       return nil unless session[:user_id]
       @user = nil
@@ -81,6 +83,7 @@ SQL
     end
 
     def generate_salt
+        # ソルト生成
       salt = ''
       32.times do
         salt << SALT_CHARS[rand(SALT_CHARS.size)]
@@ -139,6 +142,7 @@ SQL
   end
 
   get '/user.js' do
+      # ここなんとかしたい
     halt 403 unless current_user
     erb :userjs, content_type: 'application/javascript', locals: {grade: current_user[:grade]}
   end
@@ -155,6 +159,7 @@ SQL
   end
 
   post '/modify' do
+      # おもそう(コナミ)
     user = current_user
     halt 403 unless user
 
@@ -185,6 +190,7 @@ SQL
   end
 
   def fetch_api(method, uri, headers, params)
+      # 大変そう
     client = HTTPClient.new
     if uri.start_with? "https://"
       client.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
@@ -204,6 +210,7 @@ SQL
       halt 403
     end
 
+    # limit = 1
     arg_json = db.exec_params("SELECT arg FROM subscriptions WHERE user_id=$1", [user[:id]]).values.first[0]
     arg = JSON.parse(arg_json)
 
