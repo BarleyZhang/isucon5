@@ -25,6 +25,7 @@ app.config.load_dict({
 
 
 def get_session_user_id():
+    # セッションからユーザーのIDを呼び出す
     try:
         return bottle.request.get_cookie("user_id", secret=app.config["session_secret"])
     except ValueError:
@@ -33,6 +34,7 @@ def get_session_user_id():
 
 
 def set_session_user_id(user_id):
+    # ユーザーのIDをセッションシークレットに保存
     bottle.response.set_cookie("user_id", user_id, secret=app.config["session_secret"])
 
 
@@ -84,6 +86,7 @@ def db_execute(query, *args):
 
 
 def authenticate(email, password):
+    # id email grade を email とパスワードが hogehogeのひとから呼び出し
     query = "SELECT id, email, grade FROM users WHERE email=%s AND passhash=digest(salt || %s, 'sha512')"
     rows = db_fetchall(query, email, password)
     if not rows:
@@ -94,6 +97,7 @@ def authenticate(email, password):
 
 
 def current_user():
+    # id email grade を id が ? の人から呼び出し。↑のはパスワード認証
     try:
         return bottle.request.user
     except AttributeError:
@@ -110,11 +114,13 @@ def current_user():
 
 
 def generate_salt():
+    # ソルト生成
     salts = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     return "".join([salts[random.randint(0, len(salts)-1)] for _ in range(32)])
 
 
 def fetch_api(method, uri, headers, params):
+    # apiを解析
     assert method in ("GET", "POST")
     if params:
         query = urllib.parse.urlencode(params)
@@ -132,12 +138,14 @@ def fetch_api(method, uri, headers, params):
 
 @app.get("/signup")
 def get_signup():
+    # 初期化
     set_session_user_id(None)
     return bottle.template("signup")
 
 
 @app.post("/signup")
 def post_signup():
+    # 登録
     email = bottle.request.forms.getunicode("email")
     password = bottle.request.forms.getunicode("password")
     grade = bottle.request.forms.getunicode("grade")
@@ -165,14 +173,17 @@ def post_cancel():
 
 @app.get("/login")
 def get_login():
+    # ログイン(初期化)
     set_session_user_id(None)
     return bottle.template("login")
 
 
 @app.post("/login")
 def post_login():
+    # ログイン
     email = bottle.request.forms.getunicode("email")
     password = bottle.request.forms.getunicode("password")
+    # ここでユーザーを認識
     user = authenticate(email, password)
     if not user:
         bottle.abort(403)
@@ -196,6 +207,7 @@ def get_index():
 @app.get("/user.js")
 def get_userjs():
     user = current_user()
+    # 重そう このへん重そう
     if not user:
         bottle.abort(403)
     if user["grade"] == "micro":
@@ -214,10 +226,12 @@ def get_userjs():
 
 @app.get("/modify")
 def get_modify():
+    # 編集
     user = current_user()
     if not user:
         bottle.abort(403)
     query = "SELECT arg FROM subscriptions WHERE user_id=%s"
+# fetchallする必要ないよね
     rows = db_fetchall(query, user["id"])
     arg = rows[0][0]
     return bottle.template("modify", {"user": user, "arg": arg})
@@ -277,31 +291,40 @@ def get_data():
         bottle.abort(403)
     
     query = "SELECT arg FROM subscriptions WHERE user_id=%s"
+# fetchallする必要なし
     rows = db_fetchall(query, user["id"])
     arg_json = rows[0][0]
     arg = json.loads(arg_json)
     
     data = []
     for service, conf in arg.items():
+# それぞれのサービスとconfigを読みだす
         rows = db_fetchall("SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1", service)
+# サービスに関する情報
         method, token_type, token_key, uri_template = rows[0]
         headers = {}
+# paramsを取得、なければ空白
         params = conf.get("params", {})
+# リクエスト組み立て
         if token_type == "header":
             headers[token_key] = conf["token"]
         elif token_type == "param":
             params[token_key] = conf["token"]
         conf_keys = conf.get("keys")
+# URI組み立て
         if conf_keys:
             uri = uri_template % conf_keys
         else:
             uri = uri_template
+#apiをfetch -> ここ絶対重いけどしゃーない
         data.append({"service": service, "data": fetch_api(method, uri, headers, params)})
     
+#hai
     bottle.response.content_type = "application/json; charset=utf-8"
     return json.dumps(data)
 
 
+#この辺は静的でいいよね
 @app.get("/css/<filename:path>")
 def get_css(filename):
     return get_static("css", filename)
