@@ -6,6 +6,8 @@ require 'erubis'
 require 'json'
 require 'httpclient'
 require 'openssl'
+require 'rack-lineprof'
+require 'date'
 
 # bundle config build.pg --with-pg-config=<path to pg_config>
 # bundle install
@@ -21,6 +23,7 @@ end
 
 class Isucon5f::WebApp < Sinatra::Base
   use Rack::Session::Cookie, secret: (ENV['ISUCON5_SESSION_SECRET'] || 'tonymoris')
+  #use Rack::Lineprof, profile: 'app.rb', logger: Logger.new('lineprof.log')
   set :erb, escape_html: true
   set :public_folder, File.expand_path('../../static', __FILE__)
 
@@ -190,13 +193,16 @@ SQL
       client.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
     end
     fetcher = case method
-              when 'GET' then client.method(:get_content)
-              when 'POST' then client.method(:post_content)
+              when 'GET' then client.method(:get_async)
+              #when 'POST' then client.method(:post_content)
               else
                 raise "unknown method #{method}"
               end
     res = fetcher.call(uri, params, headers)
-    JSON.parse(res)
+    if uri.start_with? "https://"
+      res.join
+    end
+    res
   end
 
   get '/data' do
@@ -207,7 +213,7 @@ SQL
     arg_json = db.exec_params("SELECT arg FROM subscriptions WHERE user_id=$1", [user[:id]]).values.first[0]
     arg = JSON.parse(arg_json)
 
-    data = []
+    conn = []
 
     arg.each_pair do |service, conf|
       row = db.exec_params("SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1", [service]).values.first
@@ -219,7 +225,15 @@ SQL
       when 'param' then params[token_key] = conf['token']
       end
       uri = sprintf(uri_template, *conf['keys'])
-      data << {"service" => service, "data" => fetch_api(method, uri, headers, params)}
+      p service
+      p method
+      p params
+      conn << {"service" => service, "feature" => fetch_api(method, uri, headers, params)}
+    end
+    data = []
+    conn.each do |e|
+      e['feature'].join
+      data << {"service" => e['service'], "data" => JSON.parse(e['feature'].pop.content.read)}
     end
 
     json data
